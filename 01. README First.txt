@@ -1,0 +1,9 @@
+# LutekJEB2022
+Supplemental Material - Patterns and processes in fish terrestrial biomechanics: Biomechanics and neural control of fish terrestrial locomotion
+
+This repository contains the r-code (LutekEtAl_SupCode.rmd) and data files (Table1_PhylogenyData.xlsx, actinopt_12k_treePL.tre) to run the analysis and generate the figures used in the above paper.
+
+NOTE that actinopt_12k_treePL.tre was downloaded from The Fish Tree of Life website (https://fishtreeoflife.org/downloads/). For more information about this tree, please visit their website (https://fishtreeoflife.org/about/).
+
+TO RUN CODE
+Please be sure that "Table1_PhylogenyData.xlsx" and "actinopt_12k_treePL.tre" are in the same file folder as LutekEtAl_SupCode.rmd before opening the r-notebook. 

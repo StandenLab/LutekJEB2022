@@ -1,0 +1,562 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Load in rerquired libraries
+```{r}
+library(Rmisc)
+library(readxl)
+library(tidyverse)
+library(here)
+library(tidyr)
+library(janitor)
+
+#for plotting
+library(ggplot2)
+library(RColorBrewer)
+library(jcolors)
+library(ggthemes)
+library(cowplot)
+
+#for phylo stuff
+library(ape)
+library(phytools)
+## Use the line below if you have trouble installing ggtree with install.packages
+# BiocManager::install("ggtree")
+library(ggtree)
+
+```
+
+Read in data files
+```{r}
+amphData <- read_excel("TableS1_PhylogenyData.xlsx", sheet = "S1.B List of Amphibious Fishes")
+amphData$Species <- sub(" ", "_", amphData$Species)
+
+# This is the subset of the data used to make the tree showing only one node per genus
+genusPlot <- read_excel("TableS1_PhylogenyData.xlsx", sheet = "S1.C GenusSelector")
+genusPlot$Species <- sub(" ", "_", genusPlot$Species)
+genusPlot <- genusPlot[c(1:12)]
+genusPlot <- na.omit(genusPlot)
+
+kinesub <- amphData[c(1:3,17,8,4:7,9:11)]
+kinesub <- na.omit(kinesub)
+
+```
+
+Read in tree file
+Please note that this tree was downloaded from (https://fishtreeoflife.org/downloads/)
+For more information about the tree, please see (https://fishtreeoflife.org/about/) and the associated paper (https://www.nature.com/articles/s41586-018-0273-1)
+```{r}
+rawTree<- read.tree(file ="actinopt_12k_treePL.tre")
+tree <- read.tree(file ="actinopt_12k_treePL.tre")
+```
+
+Prune data to include only fishes in the tree
+```{r}
+pruneData <- amphData[amphData$Species %in% tree$tip.label,]
+pruneSubData <- kinesub[kinesub$Species %in% tree$tip.label,]
+pruneDataGenus <- genusPlot[genusPlot$Species %in% tree$tip.label,]
+
+SubTree <-drop.tip(tree,tree$tip.label[-match(pruneSubData$Species,
+                                           tree$tip.label)])
+GenusTree <-drop.tip(tree,tree$tip.label[-match(pruneDataGenus$Species,
+                                           tree$tip.label)])
+tree <-drop.tip(tree,tree$tip.label[-match(pruneData$Species,
+                                           tree$tip.label)])
+```
+
+## This code creates plots used in the paper
+
+Make fan trees with only one species of each genus
+These trees are the raw images used for Figure 3. They were later merged in Adobe Illustrator
+```{r}
+tips <- as.data.frame(GenusTree$tip.label)
+names(tips)[1] = "Species"
+SubTest <- merge(tips, pruneDataGenus, by = "Species", sort = FALSE)
+
+shapecols<-c("purple4","slateblue1","cadetblue1","deepskyblue","blue")
+names(shapecols) <- c("tadpole","fusiform", "long", "elongate","eel-like" )
+SubTest$shapecolors = shapecols[as.character(SubTest$Body.Shape)]
+
+pdf("ShapeGenus.pdf", 8, 8)
+plotTree(GenusTree,ftype="i", fsize=0.75, lwd=2,type="fan",label.offset = 50)
+tiplabels(pch = 19, col=SubTest$shapecolors, adj = 1, cex = 1)
+dev.off()
+
+actcols <- c("green3", "palegreen1", "grey70")
+names(actcols) <- c("active", "both", "remains")
+SubTest$actcolors = actcols[as.character(SubTest$Active.Passive)]
+
+pdf("ActivityGenus.pdf", 8, 8)
+plotTree(GenusTree,ftype="i", fsize=0.75, lwd=2,type="fan",label.offset = 50)
+tiplabels(pch = 19, col=SubTest$actcolors, adj = 1, cex = 1)
+dev.off()
+
+skincols<-c("chocolate4", "tan3", "tan")
+names(skincols) <- c("armor", "scales", "skin")
+SubTest$skincols = skincols[as.character(SubTest$Skin.Anatomy)]
+
+pdf("SkinGenus.pdf", 8, 8)
+plotTree(GenusTree,ftype="i", fsize=0.75, lwd=2,type="fan",label.offset = 50)
+tiplabels(pch = 19, col=SubTest$skincols, adj = 1, cex = 1)
+dev.off()
+
+# Body = yellow, fins = red
+anatcols<-c("gold", "darkgoldenrod1","darkorange","orangered","grey70")
+names(anatcols) <- c("body","body, tail","fins, body, tail", "fins, tail","not move")
+SubTest$anatcols = anatcols[as.character(SubTest$Morphology.2.move)]
+
+anatcols2<-c("firebrick1", "gold","darkorange","grey70")
+names(anatcols2) <- c("apendicular", "axial",  "both", "not move" )
+SubTest$anatcols2 = anatcols2[as.character(SubTest$MorphSummary)]
+
+pdf("AnatomyGenus.pdf", 8, 8)
+plotTree(GenusTree,ftype="i", fsize=0.75, lwd=2,type="fan",label.offset = 50)
+tiplabels(pch = 19, col=SubTest$anatcols2, adj = 1, cex = 1)
+dev.off()
+
+behavcols<-c("plum1","hotpink","grey70","red4","red3", "maroon2")
+names(behavcols) <- c("crutching","jump","not move","slithering","tail pushing","walking")
+SubTest$behavcols = behavcols[as.character(SubTest$Behavior)]
+
+pdf("BehaviorGenus.pdf", 8, 8)
+plotTree(GenusTree,ftype="i", fsize=0.75, lwd=2,type="fan",label.offset = 50)
+tiplabels(pch = 19, col=SubTest$behavcols, adj = 1, cex = 1)
+dev.off()
+```
+
+This code creates the polar stacked histograms used in Figure 3
+This chunk makes a historgam of Active Anatomy
+```{r}
+df <- read_excel("counts_rev2.xlsx", sheet = "MorphSummary")
+df <- df[c(1,3,8:11)]
+
+library(reshape2)
+dft <- data.frame(segment = c("A", "B", "C",
+     "D"), segpct = c(40, 30, 20, 10), Alpha = c(60,
+     40, 30, 25), Beta = c(25, 30, 30, 25),
+     Gamma = c(10, 20, 20, 25), Delta = c(5,
+         10, 20, 25))
+df$xmax <- cumsum(df$perc)
+df$xmin <- df$xmax - df$perc
+df$perc <- NULL
+dfm <- melt(df, id = c("Body.Shape", "xmin", "xmax"))
+
+dfm1 <- ddply(dfm, .(Body.Shape), transform, ymax = cumsum(value))
+dfm1 <- ddply(dfm1, .(Body.Shape), transform,
+     ymin = ymax - value)
+
+dfm1$xtext <- with(dfm1, xmin + (xmax - xmin)/2)
+dfm1$ytext <- with(dfm1, ymin + (ymax - ymin)/2)
+
+anatcols<-c("orangered","gold", "darkorange","grey70")
+names(anatcols) <- c("apendicular", "axial","both","not.move")
+
+p1<-ggplot(dfm1, aes(ymin = ymin, ymax = ymax, xmin = xmin, xmax = xmax, 
+                      fill = variable))+
+  geom_rect(colour = I("white"))+
+  scale_fill_manual(values=anatcols)+
+  theme_classic()+
+  coord_polar("x")+
+  geom_text(aes(x = xtext, y = 105,
+     label = paste(Body.Shape)), size = 4, angle = 45)
+ggsave("ActiveAnat_rev2.pdf",p1, width = 15, height = 10, units = "cm")
+```
+
+This code creates the polar stacked histograms used in Figure 3
+This chunk makes a historgram of Activity Level
+```{r}
+df <- read_excel("counts_rev2.xlsx", sheet = "ActivityLevel")
+df <- df[c(1,3,7:9)]
+
+library(reshape2)
+dft <- data.frame(segment = c("A", "B", "C",
+     "D"), segpct = c(40, 30, 20, 10), Alpha = c(60,
+     40, 30, 25), Beta = c(25, 30, 30, 25),
+     Gamma = c(10, 20, 20, 25), Delta = c(5,
+         10, 20, 25))
+df$xmax <- cumsum(df$perc)
+df$xmin <- df$xmax - df$perc
+df$perc <- NULL
+dfm <- melt(df, id = c("Body.Shape", "xmin", "xmax"))
+
+dfm1 <- ddply(dfm, .(Body.Shape), transform, ymax = cumsum(value))
+dfm1 <- ddply(dfm1, .(Body.Shape), transform,
+     ymin = ymax - value)
+
+dfm1$xtext <- with(dfm1, xmin + (xmax - xmin)/2)
+dfm1$ytext <- with(dfm1, ymin + (ymax - ymin)/2)
+
+actcols <- c("green3", "palegreen1", "grey70")
+names(actcols) <- c("active", "both", "remains")
+
+p2<- ggplot(dfm1, aes(ymin = ymin, ymax = ymax, xmin = xmin, xmax = xmax, 
+                      fill = variable))+
+  geom_rect(colour = I("white"))+
+  scale_fill_manual(values=actcols)+
+  theme_classic()+
+  coord_polar("x")+
+  geom_text(aes(x = xtext, y = 105,
+     label = paste(Body.Shape)), size = 4, angle = 45)
+ggsave("ActivityLev_rev2.pdf",p2, width = 15, height = 10, units = "cm")
+```
+
+This code creates the polar stacked histograms used in Figure 3
+This chunk makes a historgram of Behaviour
+```{r}
+df <- read_excel("counts_rev2.xlsx", sheet = "Behavior")
+df <- df[c(1,3,10:15)]
+
+library(reshape2)
+dft <- data.frame(segment = c("A", "B", "C",
+     "D"), segpct = c(40, 30, 20, 10), Alpha = c(60,
+     40, 30, 25), Beta = c(25, 30, 30, 25),
+     Gamma = c(10, 20, 20, 25), Delta = c(5,
+         10, 20, 25))
+df$xmax <- cumsum(df$perc)
+df$xmin <- df$xmax - df$perc
+df$perc <- NULL
+dfm <- melt(df, id = c("Body.Shape", "xmin", "xmax"))
+
+dfm1 <- ddply(dfm, .(Body.Shape), transform, ymax = cumsum(value))
+dfm1 <- ddply(dfm1, .(Body.Shape), transform,
+     ymin = ymax - value)
+
+dfm1$xtext <- with(dfm1, xmin + (xmax - xmin)/2)
+dfm1$ytext <- with(dfm1, ymin + (ymax - ymin)/2)
+
+# behavcols<-c("violet","deeppink","grey70","red4","red2", "magenta2")
+behavcols<-c("thistle1","maroon1","grey70","firebrick4","red", "violet")
+names(behavcols) <- c("crutching","jump","not.move","slithering","tail.pushing","walking")
+
+p3<-ggplot(dfm1, aes(ymin = ymin, ymax = ymax, xmin = xmin, xmax = xmax, 
+                      fill = variable))+
+  geom_rect(colour = I("white"))+
+  scale_fill_manual(values=behavcols)+
+  theme_classic()+
+  coord_polar("x")+
+  geom_text(aes(x = xtext, y = 105,
+     label = paste(Body.Shape)), size = 4, angle = 45)
+ggsave("Behavior_rev2.pdf",p3, width = 15, height = 10, units = "cm")
+```
+
+This is the code used to make Figure 4 showing fish lengts across taxa
+```{r}
+
+kineTest <- read_excel("TableS1.xlsx", sheet = "LengthSheet")
+kineTest$Species <- sub(" ", "_", kineTest$Species)
+kineTest <- na.omit(kineTest)
+
+behavcols<-c("violet","deeppink","grey70","red4","red2", "magenta2","swim")
+names(behavcols) <- c("crutching","jump","not move","slithering",
+                      "tail pushing","walking","white")
+
+behaves <- c("jump","tail pushing","slithering")
+
+ggplot(kineTest, aes(y = log(length), x = Behavior, fill = Behavior))+
+  geom_boxplot()+
+  theme_classic()+
+  scale_x_discrete(limits = behaves)+
+  scale_fill_manual(values=behavcols)
+
+p2<- ggplot(kineTest, aes(y = (length), x = Behavior, fill = Behavior))+
+  geom_boxplot()+
+  theme_classic()+
+  scale_x_discrete(limits = behaves)+
+  scale_fill_manual(values=behavcols)+
+  theme(legend.position = "none", text = element_text(size = 12), 
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x=element_blank(), axis.title.y=element_blank())
+
+ggplot(kineTest, aes(y = (length), x = reorder(Behavior, length, FUN = median), fill = Behavior))+
+  geom_boxplot()+
+  theme_classic()+
+  xlab("Behavior") + ylab("Length (cm)")+
+  scale_fill_manual(values=behavcols)+
+  theme(text = element_text(size = 20),
+        axis.text.x = element_text(angle = 45, hjust = 1))+
+  annotation_custom(ggplotGrob(p2), xmin = 1, xmax = 5, 
+                       ymin =250, ymax = 1000)
+ggsave("LengthAll_Inset.pdf", width = 20, height = 15, units = "cm")
+
+kineTest<- kineTest %>% 
+  mutate(V5 = case_when(Body.Shape == "fusiform" ~ (4/3)*pi*(0.0125*length), 
+                        Body.Shape == "tadpole" ~ (pi*((0.2*length)^2)*length)/3,
+                        Body.Shape == "long" ~ pi*length*(0.1*length),
+                        Body.Shape == "elongate" ~ pi*length*(0.05*length),
+                        Body.Shape == "eel-like" ~ pi*length*(0.01*length),
+                        TRUE ~ 0))
+
+```
+
+This code is used to count instances of categoral variables. It was used to make the count table (S1.D Group Counts)
+```{r}
+test = kinesub %>% count(Body.Shape)
+test$np = (test$n/nrow(kinesub))*100
+
+test2<-kinesub %>%                           # case linelist
+  tabyl(Body.Shape, MorphSummary) %>%        # cross-tabulate counts of two columns
+  adorn_totals(where = "row") %>%            # add a total row
+  # adorn_percentages(denominator = "col") %>% # convert to proportions w/col denominator
+  # adorn_pct_formatting() %>%                 # convert proportions to percents
+  # adorn_ns(position = "front") %>%           # display as: "count (percent)"
+  adorn_title(                               # adjust titles
+    row_name = "Body.Shape",
+    col_name = "Emersion.Tolerance")
+```
+
+## This is extra code which generates plots not used in the paper. 
+We included it here, as it might be of interest/use
+
+Substet data for dot tree of all Amph Data
+```{r}
+cols<-setNames(c("deepskyblue1","blue ","purple4 ","dodgerblue1 ","blueviolet ","skyblue2",
+                 "greenyellow","green","springgreen3","green4","yellow",
+                 "grey60","grey100","grey20"),
+                c("fusiform","long","eel-like","tadpole","elongate","deep",
+                 "fresh", "euryhaline","marine","brackish","all",
+                 "both", "remains", "active"))
+
+x = as.matrix(pruneData$Body.Shape)
+y = as.matrix(pruneData$Water.Type)
+z = as.matrix(pruneData$Active.Passive)
+
+Y = cbind(x,y,z)
+```
+
+Plot dot tree of all Amph Data
+```{r}
+pdf("Amph_test.pdf", 20, 20)
+rownames(Y) <- (pruneData$Species)
+dotTree(tree,Y, colors=cols, x.space = 0.05, leg.space = 0.001)
+
+dev.off()
+```
+
+Subset data for Genus tree
+```{r}
+cols2<-setNames(c("deepskyblue1","blue ","purple4 ","dodgerblue1 ","blueviolet ","skyblue2",
+                 "tan4","tan2","tan",
+                 "palegreen1", "grey70", "green3",
+                 "darkseagreen1", "springgreen", "springgreen4", "turquoise", "gray70",
+                 "violet", "deeppink","gray70","darkviolet","darkorchid","deeppink3"),
+                c("fusiform","long","eel-like","tadpole","elongate","deep",
+                 "armor",  "scales", "skin" ,
+                 "both", "remains", "active",
+                 "body","body, tail", "fins, tail, body", "fins, tail", "not move",
+                 "crutching", "jump", "not move", "slithering", "tail pushing", "walking" ))
+
+a = as.matrix(pruneDataGenus$Body.Shape)
+b = as.matrix(pruneDataGenus$Skin.Anatomy)
+c = as.matrix(pruneDataGenus$Active.Passive)
+d = as.matrix(pruneDataGenus$Morphology.2.move)
+e = as.matrix(pruneDataGenus$Behavior)
+
+Y3 = cbind(a,b,c,d,e)
+```
+
+Plot the Genus Tree
+```{r}
+pdf("GenusTest.pdf", 20, 20)
+rownames(Y3) <- (pruneDataGenus$Species)
+dotTree(GenusTree,Y3, colors=cols2, x.space = 0.05, leg.space = 0.001)
+
+dev.off()
+```
+
+Make fan trees of entire dataset
+These are not used in the paper, as they include multiple species in the same genus, but they might be of interest
+```{r}
+ggtree(tree, layout='circular') + geom_tiplab(as_ylab=TRUE, size = 0.1)
+
+X <- as.data.frame(pruneData$Body.Shape)
+rownames(X) <- pruneData$Species
+
+tips <- as.data.frame(tree$tip.label)
+names(tips)[1] = "Species"
+test <- merge(tips, pruneData, by = "Species", sort = FALSE)
+
+shapecols<-c("green4","seagreen1 ","cadetblue1 ","deepskyblue ","mediumblue")
+names(shapecols) <- c("tadpole","fusiform", "long", "elongate","eel-like" )
+test$shapecolors = shapecols[as.character(test$Body.Shape)]
+
+actcols <- c("green3", "palegreen1", "grey50")
+names(actcols) <- c("active", "both", "remains")
+test$actcolors = actcols[as.character(test$Active.Passive)]
+
+pdf("ShapeCirc.pdf", 8, 8)
+plotTree(tree,ftype="i", fsize=0.5, lwd=2,type="fan",label.offset = 50)
+tiplabels(pch = 19, col=test$shapecolors, adj = 1, cex = 1)
+dev.off()
+
+pdf("ActCirc.pdf", 8, 8)
+plotTree(tree,ftype="i", fsize=0.5, lwd=2,type="fan",label.offset = 50)
+tiplabels(pch = 19, col=test$actcolors, adj = 1, cex = 1)
+dev.off()
+```
+
+Make fan trees of entire dataset
+These are not used in the paper, as they include multiple species in the same genus, but they might be of interest
+```{r}
+tips <- as.data.frame(SubTree$tip.label)
+names(tips)[1] = "Species"
+SubTest <- merge(tips, pruneSubData, by = "Species", sort = FALSE)
+
+
+shapecols<-c("purple4","slateblue1","cadetblue1","deepskyblue","blue")
+names(shapecols) <- c("tadpole","fusiform", "long", "elongate","eel-like" )
+SubTest$shapecolors = shapecols[as.character(SubTest$Body.Shape)]
+
+pdf("SubShapeCirc.pdf", 8, 8)
+plotTree(SubTree,ftype="i", fsize=0.5, lwd=2,type="fan",label.offset = 50)
+tiplabels(pch = 19, col=SubTest$shapecolors, adj = 1, cex = 1)
+dev.off()
+
+actcols <- c("green3", "palegreen1", "grey70")
+names(actcols) <- c("active", "both", "remains")
+SubTest$actcolors = actcols[as.character(SubTest$Active.Passive)]
+
+pdf("SubActCirc.pdf", 8, 8)
+plotTree(SubTree,ftype="i", fsize=0.5, lwd=2,type="fan",label.offset = 50)
+tiplabels(pch = 19, col=SubTest$actcolors, adj = 1, cex = 1)
+dev.off()
+
+skincols<-c("chocolate4", "tan3", "tan")
+names(skincols) <- c("armor", "scales", "skin")
+SubTest$skincols = skincols[as.character(SubTest$Skin.Anatomy)]
+
+pdf("SubSkinCirc.pdf", 8, 8)
+plotTree(SubTree,ftype="i", fsize=0.5, lwd=2,type="fan",label.offset = 50)
+tiplabels(pch = 19, col=SubTest$skincols, adj = 1, cex = 1)
+dev.off()
+
+# Body = yellow, fins = red
+anatcols<-c("gold", "darkgoldenrod1","darkorange","orangered","grey70")
+names(anatcols) <- c("body","body, tail","fins, body, tail", "fins, tail","not move")
+SubTest$anatcols = anatcols[as.character(SubTest$Morphology.2.move)]
+
+anatcols2<-c("firebrick1", "gold","darkorange","grey70")
+names(anatcols2) <- c("apendicular", "axial",  "both", "not move" )
+SubTest$anatcols2 = anatcols2[as.character(SubTest$MorphSummary)]
+
+pdf("SubAnatCirc2.pdf", 8, 8)
+plotTree(SubTree,ftype="i", fsize=0.5, lwd=2,type="fan",label.offset = 50)
+tiplabels(pch = 19, col=SubTest$anatcols2, adj = 1, cex = 1)
+dev.off()
+
+# Body = red, fins = pink
+behavcols<-c("violet","deeppink","grey70","red4","red2", "magenta2")
+names(behavcols) <- c("crutching","jump","not move","slithering","tail pushing","walking")
+SubTest$behavcols = behavcols[as.character(SubTest$Behavior)]
+
+pdf("SubBehavCirc.pdf", 8, 8)
+plotTree(SubTree,ftype="i", fsize=0.5, lwd=2,type="fan",label.offset = 50)
+tiplabels(pch = 19, col=SubTest$behavcols, adj = 1, cex = 1)
+dev.off()
+```
+
+These stacked histograms show counts of all categorical data. 
+they are not used in the paper, but might be of interest.
+```{r}
+behavcols<-c("violet","deeppink","grey70","red4","red2", "magenta2")
+names(behavcols) <- c("crutching","jump","not move","slithering","tail pushing","walking")
+
+anatcols<-c("gold","orangered", "darkorange","grey70")
+names(anatcols) <- c("apendicular", "axial","both","not move")
+
+actcols <- c("green3", "palegreen1", "grey70")
+names(actcols) <- c("active", "both", "remains")
+
+shapes <- c("tadpole", "fusiform", "long", "elongate","eel-like")
+p1<- ggplot(kinesub, aes(x = Body.Shape, fill = MorphSummary))+
+  geom_bar(position="fill")+theme_classic()+
+  scale_fill_manual(values=anatcols2)+ 
+  scale_x_discrete(limits = shapes)+
+  theme(axis.text.x = element_text(size = 14),
+      text = element_text(size=20))+
+  xlab("Body Shape") + ylab("Percent") + labs(fill = "Active Anatomy")
+
+p2<- ggplot(kinesub, aes(x = Body.Shape, fill = Behavior))+
+  geom_bar(position="fill")+theme_classic()+
+  scale_fill_manual(values=behavcols)+ 
+  scale_x_discrete(limits = shapes)+
+  theme(axis.text.x = element_text(size = 14),
+      text = element_text(size=20))+
+  xlab("Body Shape") + ylab("Percent") + labs(fill = "Behavior")
+
+p3 <- ggplot(kinesub, aes(x = Body.Shape, fill = Active.Passive))+
+  geom_bar(position="fill")+theme_classic()+
+  scale_fill_manual(values=actcols)+ 
+  scale_x_discrete(limits = shapes)+
+  theme(axis.text.x = element_text(size = 14),
+      text = element_text(size=20))+
+  xlab("Body Shape") + ylab("Percent") + labs(fill = "Activity")
+
+p4<- ggplot(kinesub, aes(x = Active.Passive, fill = MorphSummary))+
+  geom_bar(position="fill")+theme_classic()+
+  scale_fill_manual(values=anatcols2)+ 
+  theme(axis.text.x = element_text(size = 14),
+      text = element_text(size=20))+
+  xlab("Activity") + ylab("Percent") + labs(fill = "Active Anatomy")
+
+p5<- ggplot(kinesub, aes(x = Active.Passive, fill = Behavior))+
+  geom_bar(position="fill")+theme_classic()+
+  scale_fill_manual(values=behavcols)+ 
+  theme(axis.text.x = element_text(size = 14),
+      text = element_text(size=20))+
+  xlab("Activity") + ylab("Percent") + labs(fill = "Behavior")
+
+p6<- ggplot(kinesub, aes(x = MorphSummary, fill = Behavior))+
+  geom_bar(position="fill")+theme_classic()+
+  scale_fill_manual(values=behavcols)+ 
+  theme(axis.text.x = element_text(size = 14),
+      text = element_text(size=20))+
+  xlab("Active Anatomy") + ylab("Percent") + labs(fill = "Activity")
+
+plot_grid(
+  p3,p6,
+  p1,p4,
+  p2,p5,
+  labels = "AUTO", ncol = 2
+)
+ggsave("compAll.pdf", width = 40, height = 20, units = "cm")
+
+```
+
+This code creates a stacked histogram showing Emersion time. It was not used in the paper, but might be of interest.
+```{r}
+df <- read_excel("counts_rev2.xlsx", sheet = "Emersion")
+df <- df[c(1,3,10:15)]
+
+library(reshape2)
+dft <- data.frame(segment = c("A", "B", "C",
+     "D"), segpct = c(40, 30, 20, 10), Alpha = c(60,
+     40, 30, 25), Beta = c(25, 30, 30, 25),
+     Gamma = c(10, 20, 20, 25), Delta = c(5,
+         10, 20, 25))
+df$xmax <- cumsum(df$perc)
+df$xmin <- df$xmax - df$perc
+df$perc <- NULL
+dfm <- melt(df, id = c("Body.Shape", "xmin", "xmax"))
+
+dfm1 <- ddply(dfm, .(Body.Shape), transform, ymax = cumsum(value))
+dfm1 <- ddply(dfm1, .(Body.Shape), transform,
+     ymin = ymax - value)
+
+dfm1$xtext <- with(dfm1, xmin + (xmax - xmin)/2)
+dfm1$ytext <- with(dfm1, ymin + (ymax - ymin)/2)
+
+# behavcols<-c("violet","deeppink","grey70","red4","red2", "magenta2")
+# names(behavcols) <- c("crutching","jump","not.move","slithering","tail.pushing","walking")
+
+p3<- ggplot(dfm1, aes(ymin = ymin, ymax = ymax, xmin = xmin, xmax = xmax, 
+                      fill = variable))+
+  geom_rect(colour = I("white"))+
+  scale_fill_brewer(type = "seq")+
+  theme_classic()+
+  coord_polar("x")+
+  geom_text(aes(x = xtext, y = 105,
+     label = paste(Body.Shape)), size = 4, angle = 45)
+ggsave("Emersion_rev2.png",p3, width = 15, height = 10, units = "cm")
+```
